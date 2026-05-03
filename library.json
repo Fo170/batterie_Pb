@@ -1,0 +1,27 @@
+{
+  "name": "batterie_Pb",
+  "version": "1.0.0",
+  "description": "Bibliothèque complète de gestion des batteries au plomb-acide pour systèmes embarqués (régulateurs solaires, chargeurs intelligents, onduleurs)",
+  "keywords": "battery, lead-acid, battery-management, solar, charger, AGM, GEL, photovoltaic",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fo170/batterie_Pb.git"
+  },
+  "authors": [
+    {
+      "name": "Olivier FOURNET",
+      "email": "olivier.fournet@free.fr",
+      "maintainer": true
+    }
+  ],
+  "license": "GPL-3.0 license",
+  "frameworks": "*",
+  "platforms": "*",
+  "headers": "batterie_Pb.h",
+  "build": {
+    "includeDir": "src",
+    "flags": [
+      "-std=c99"
+    ]
+  }
+}

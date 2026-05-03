@@ -1,0 +1,14 @@
+mes tableaux viennent du livre ISBN : 9782100499458 (énergie solaire photovoltaïque de Anne Labouret et Michel Villoz) page 89 à 136
+
+je voudrais que tout soit dans un seul fichier batterie_Pb.h pour la librairie.
+
+j'avais pris aussi des renseignements sur les sites : https://www.batterie-solaire.com/accumulateur-plomb-principe-fonctionnement.htm   et https://fr.wikipedia.org/wiki/Batterie_au_plomb 
+
+du coup les variables pour la plus part sont issue du livre.
+
+peut tu améliorer la structure : struct batterie_Pb et complémenter les différents tableaux de constantes, etc...
+
+si besoin faire des fonctions qui donne des valeurs proportionnelles en fonction des valeurs des différents tableaux (qui passent part les point de valeurs)
+
+cette librairie serai en bref adapter aux différents cas d'utilisations figurant sur le livre.
+
