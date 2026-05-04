@@ -1,0 +1,30 @@
+# Datatypes (KEYWORD1)
+bat_pb_t	KEYWORD1
+bat_pb_type_t	KEYWORD1
+bat_pb_c_rate_t	KEYWORD1
+bat_charge_phase_t	KEYWORD1
+bat_regulator_mode_t	KEYWORD1
+bat_soc_level_t	KEYWORD1
+
+# Methods (KEYWORD2)
+bat_pb_init	KEYWORD2
+bat_pb_update_state	KEYWORD2
+bat_pb_compute_thresholds	KEYWORD2
+bat_pb_compute_currents	KEYWORD2
+bat_pb_compute_all	KEYWORD2
+bat_pb_get_disconnect_voltage	KEYWORD2
+bat_pb_get_reconnect_voltage	KEYWORD2
+bat_pb_estimate_soc_from_ocv	KEYWORD2
+bat_pb_determine_charge_phase	KEYWORD2
+bat_pb_is_equalization_allowed	KEYWORD2
+
+# Constants (LITERAL1)
+BAT_TYPE_SN_PB_LIQUIDE	LITERAL1
+BAT_TYPE_CA_PB_LIQUIDE	LITERAL1
+BAT_TYPE_AGM	LITERAL1
+BAT_TYPE_GEL	LITERAL1
+BAT_C_RATE_C100	LITERAL1
+BAT_C_RATE_C50	LITERAL1
+BAT_C_RATE_C20	LITERAL1
+BAT_C_RATE_C10	LITERAL1
+BAT_C_RATE_C5	LITERAL1

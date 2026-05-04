@@ -31,13 +31,19 @@ Anne Labouret & Michel Villoz pour leur ouvrage de référence :
 - 📖 **Labouret & Villoz**, *Énergie solaire photovoltaïque*, Dunod, ISBN **9782100499458**
 Les constantes électriques et les tableaux de tension proviennent principalement, pages 89 à 136 (chapitre accumulateurs et régulation)
 
-📄 Les valeurs pour batteries **liquides** (Sn-Pb et Ca-Pb) sont fidèles au livre. Les valeurs **AGM** et **GEL** sont dérivées des datasheets industrielles suivantes :
+📄 Les valeurs pour batteries **liquides** (Sn-Pb et Ca-Pb) sont fidèles au livre. Les valeurs **AGM** et **GEL** sont dérivées des datasheets industrielles (Yuasa, Victron, Exide) avec un ajustement de +0.01 à +0.02 V/élément.
 
-- **Yuasa** : 🔗 [Batteries au plomb (NP, SW, REC series)](https://www.yuasa.co.uk/batteries/lead-acid/)
-- **Victron Energy** : 🔗 [Batteries Gel et AGM Deep Cycle](https://www.victronenergy.com/batteries)
-- **Exide Technologies** : 🔗 [Batteries AGM et Gel (ES series)](https://www.exide.com/en/product-category/industrial-energy-systems/standby-power)
+## 📚 Datasheets officielles
 
-Les valeurs pour batteries **liquides** (Sn-Pb et Ca-Pb) sont fidèles au livre. Les valeurs **AGM** et **GEL** sont dérivées des datasheets industrielles (Yuasa, Victron, Exide) avec un ajustement de +0.01 à +0.02 V/élément.
+| Fabricant | Lien | Types supportés |
+|-----------|------|-----------------|
+| **Yuasa** | 🔗 [Documentation technique](https://www.yuasa.be/fr/technical-information/) | AGM, GEL, Open |
+| **Victron Energy** | 🔗 [Lead Acid Batteries](https://www.victronenergy.com/batteries/lead-acid) | AGM, GEL |
+| **Exide Technologies** | 🔗 [Stationary Batteries](https://www.exide-technologies.com/products/stationary/) | Open, AGM |
+
+### Références normes
+- 🔗 [IEEE 450-2010](https://standards.ieee.org/standard/450-2010.html) - Maintenance des batteries plomb-acide
+- 🔗 [IEC 60896-21](https://webstore.iec.ch/publication/3895) - Batteries stationnaires VRLA
 
 ---
 

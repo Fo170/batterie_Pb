@@ -438,6 +438,14 @@ typedef struct {
     float total_ah_charged;         /**< Ah charges cumules */
     float total_ah_discharged;      /**< Ah decharges cumules */
     uint32_t days_since_equalization; /**< Jours depuis equalization */
+    /* CHAMPS POUR COULOMB COUNTING */
+    float coulomb_ah;               /**< Intégrale de Coulomb (Ah) */
+    float last_soc_for_cycles;      /**< Dernier SOC pour comptage cycles */
+    float cumulative_dod;           /**< DOD cumulé pour cycles */
+    float last_temperature;         /**< Dernière température pour recalibrage */
+
+    bool first_measurement;         /**< Première mesure de température (pour recalibrage) */
+
 } bat_pb_state_t;
 
 /** Structure principale */
@@ -711,6 +719,12 @@ static inline int bat_pb_init(bat_pb_t *bat, bat_pb_type_t type, uint8_t nb_cell
     bat->state.soc_level = BAT_SOC_MEDIUM;
     bat->state.temperature = BAT_PB_TEMP_REF;
 
+    bat->state.coulomb_ah = 0.0f;
+    bat->state.last_soc_for_cycles = 50.0f;
+    bat->state.cumulative_dod = 0.0f;
+    bat->state.last_temperature = BAT_PB_TEMP_REF;
+    bat->state.first_measurement = true;
+
     return 0;
 }
 
@@ -812,10 +826,8 @@ static inline int bat_pb_update_state(bat_pb_t *bat, float V_meas, float I_meas,
 
     uint8_t n = bat->config.nb_elements;
     bat->state.V_per_cell = bat_pb_total_to_cell(V_meas, n);
-    bat->state.V_per_cell_compensated = bat_pb_temp_compensate(
-        bat->state.V_per_cell, temp_meas, bat->config.temp_ref);
-    bat->state.V_batt_compensated = bat_pb_cell_to_total(
-        bat->state.V_per_cell_compensated, n);
+    bat->state.V_per_cell_compensated = bat_pb_temp_compensate(bat->state.V_per_cell, temp_meas, bat->config.temp_ref);
+    bat->state.V_batt_compensated = bat_pb_cell_to_total(bat->state.V_per_cell_compensated, n);
 
     /* Detection charge/decharge */
     bat->state.is_charging = (I_meas > BAT_CHARGE_CURRENT_THRESHOLD);
@@ -855,10 +867,10 @@ static inline int bat_pb_update_state(bat_pb_t *bat, float V_meas, float I_meas,
     }
 
     /* Recalcul des seuils si temperature changee significativement */
-    static float last_temp = 25.0f;
-    if (fabsf(temp_meas - last_temp) > 2.0f) {
-        bat_pb_compute_thresholds(bat);
-        last_temp = temp_meas;
+    if (bat->state.first_measurement || fabsf(temp_meas - bat->state.last_temperature) > 2.0f) {
+       bat_pb_compute_thresholds(bat);
+       bat->state.last_temperature = temp_meas;
+       bat->state.first_measurement = false;  // Plus besoin après
     }
 
     return 0;
@@ -915,6 +927,71 @@ static inline bat_charge_phase_t bat_pb_determine_charge_phase(const bat_pb_t *b
         default:
             return BAT_CHARGE_PHASE_IDLE;
     }
+}
+
+/**
+ * @brief Met à jour le SOC par comptage de Coulomb (intégration courant)
+ * À appeler régulièrement (toutes les secondes ou moins) pour précision
+ * 
+ * @param bat           Pointeur vers la structure batterie
+ * @param I_meas        Courant mesuré [A] (>0 charge, <0 décharge)
+ * @param dt_seconds    Temps écoulé depuis dernier appel [s]
+ * @param update_ocv    Si true, réajuste périodiquement sur l'OCV
+ * @return              SOC estimé par Coulomb [%]
+ */
+static inline float bat_pb_update_coulomb_counting(bat_pb_t *bat, float I_meas, 
+                                                     float dt_seconds, bool update_ocv)
+{
+    if (bat == NULL || dt_seconds <= 0.0f) return bat->state.soc_percent;
+    
+    float C = bat->config.capacity_ah;
+    float efficiency = BAT_PB_EFFICIENCY_THEORETICAL;
+    
+    /* Intégration du courant (Ah) - utilise le champ de la structure */
+    float dAh = I_meas * dt_seconds / 3600.0f;
+    
+    /* Rendement différent selon charge/décharge */
+    if (I_meas > 0) {
+        dAh *= efficiency;  /* Charge: rendement < 1 */
+    }
+    
+    bat->state.coulomb_ah += dAh;
+    
+    /* SOC par Coulomb */
+    float soc_coulomb = 100.0f * (1.0f - bat->state.coulomb_ah / C);
+    
+    /* Réajustement périodique sur OCV (repos, pas de courant) */
+    if (update_ocv && fabsf(I_meas) < BAT_CHARGE_CURRENT_THRESHOLD) {
+        float soc_ocv = bat_pb_estimate_soc_from_ocv(bat->config.type, 
+                                                      bat->state.V_batt, 
+                                                      bat->config.nb_elements);
+        if (soc_ocv >= 0) {
+            /* Filtre complémentaire: 95% OCV, 5% Coulomb pour stabilité */
+            bat->state.soc_percent = soc_ocv * 0.95f + soc_coulomb * 0.05f;
+            bat->state.coulomb_ah = C * (1.0f - bat->state.soc_percent / 100.0f);
+        } else {
+            bat->state.soc_percent = soc_coulomb;
+        }
+    } else {
+        bat->state.soc_percent = soc_coulomb;
+    }
+    
+    /* Bornes */
+    if (bat->state.soc_percent < 0.0f) bat->state.soc_percent = 0.0f;
+    if (bat->state.soc_percent > 100.0f) bat->state.soc_percent = 100.0f;
+    
+    /* Comptage des cycles - utilise les champs de la structure */
+    float delta_dod = bat->state.last_soc_for_cycles - bat->state.soc_percent;
+    if (delta_dod > 0) {
+        bat->state.cumulative_dod += delta_dod;
+        if (bat->state.cumulative_dod >= 80.0f) {  /* Cycle = 80% DOD cumulé */
+            bat->state.cycle_count++;
+            bat->state.cumulative_dod = 0.0f;
+        }
+    }
+    bat->state.last_soc_for_cycles = bat->state.soc_percent;
+    
+    return bat->state.soc_percent;
 }
 
 /**
