@@ -1,6 +1,6 @@
 {
   "name": "batterie_Pb",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Bibliothèque complète de gestion des batteries au plomb-acide pour systèmes embarqués (régulateurs solaires, chargeurs intelligents, onduleurs)",
   "keywords": "battery, lead-acid, battery-management, solar, charger, AGM, GEL, photovoltaic",
   "repository": {
