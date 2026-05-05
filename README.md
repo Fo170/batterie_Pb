@@ -23,10 +23,10 @@ Bibliothèque C/C++ complète de gestion des batteries au plomb-acide pour syst�
 
 | Section               | Image                         | Description               |
 | --------------------- | ----------------------------- | ------------------------- |
-| **Phases de charge**  | `svg/01_charge_curve.svg`     | Courbe CC/CV complète     |
-| **Vision 2**          | `svg/03_state_machine.svg`    | Diagramme machine à états |
-| **Tables de tension** | `svg/02_soc_voltage.svg`      | Tension OCV vs SOC        |
-| **Avant changements** | `svg/04_discharge_curves.svg` | Courbes de décharge       |
+| **Phases de charge**    | ![Courbe de charge CC/CV](svg/01_charge_curve.svg)     | Courbe CC/CV complète     |
+| **Machine à états**     | ![Diagramme machine à états](svg/03_state_machine.svg) | Diagramme machine à états |
+| **Tables de tension**   | ![Tension OCV vs SOC](svg/02_soc_voltage.svg)          | Tension OCV vs SOC        |
+| **Courbes de décharge** | ![Courbes de décharge](svg/04_discharge_curves.svg)    | Courbes de décharge       |
 
 ---
 
