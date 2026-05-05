@@ -26,9 +26,10 @@ Bibliothèque C/C++ complète de gestion des batteries au plomb-acide pour syst�
 - 🔗 [Wikipedia — Batterie au plomb](https://fr.wikipedia.org/wiki/Batterie_au_plomb) — phases CC/CV, floating, auto-décharge
 
 🙏 Remerciements
-Anne Labouret & Michel Villoz pour leur ouvrage de référence :
+Anne Labouret & Michel Villoz pour leur ouvrage de référence
 
-- 📖 **Labouret & Villoz**, *Énergie solaire photovoltaïque*, Dunod, ISBN **9782100499458** ![livre](https://raw.githubusercontent.com/Fo170/batterie_Pb/main/Energie_solaire_photovoltaïque_tiny.png)
+![livre](https://raw.githubusercontent.com/Fo170/batterie_Pb/main/Energie_solaire_photovoltaïque_tiny.png)
+- 📖 **Labouret & Villoz**, *Énergie solaire photovoltaïque*, Dunod, ISBN **9782100499458** 
 
 Les constantes électriques et les tableaux de tension proviennent principalement, pages 89 à 136 (chapitre accumulateurs et régulation)
 
