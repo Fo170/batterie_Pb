@@ -83,12 +83,26 @@ cp batterie_Pb/src/batterie_Pb.h /chemin/vers/votre/projet/
 
 ### PlatformIO (recommandé)
 
+Ajouter au `platformio.ini` :
+
 ```ini
 lib_deps =
     fo170/batterie_Pb
 ```
 
-Ou 
+Ou directement depuis GitHub :
+
+```ini
+lib_deps =
+    https://github.com/Fo170/batterie_Pb.git
+```
+
+Ou avec une version spécifique :
+
+```ini
+lib_deps =
+    https://github.com/Fo170/batterie_Pb.git#v1.1.0
+```
 
 ### via pio :
 ```bash
@@ -365,6 +379,12 @@ Copier `batterie_Pb.h` dans le dossier du sketch. Inclure normalement. La biblio
 Ajouter au `platformio.ini` :
 
 ```ini
+[env:myenv]
+platform = atmelavr
+board = uno
+framework = arduino
+lib_deps =
+    fo170/batterie_Pb
 build_flags = -std=c99
 ```
 
