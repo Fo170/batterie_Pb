@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
+  <defs>
+    <style>
+      .title { font-family: Arial, sans-serif; font-size: 18px; font-weight: bold; fill: #333; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 12px; fill: #666; }
+      .axis-label { font-family: Arial, sans-serif; font-size: 12px; fill: #333; }
+      .legend-text { font-family: Arial, sans-serif; font-size: 11px; fill: #333; }
+      .phase-label { font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; }
+      .grid { stroke: #e0e0e0; stroke-width: 0.5; }
+      .axis { stroke: #333; stroke-width: 1.5; }
+      .voltage-line { stroke: #2196F3; stroke-width: 2.5; fill: none; }
+      .current-line { stroke: #FF5722; stroke-width: 2.5; fill: none; stroke-dasharray: 6,3; }
+      .phase-box { opacity: 0.15; }
+      .arrow { stroke: #666; stroke-width: 1.5; fill: #666; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="500" fill="#fafafa"/>
+
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" class="title">Courbe de charge CC/CV — Batterie AGM 12V 100Ah</text>
+  <text x="400" y="50" text-anchor="middle" class="subtitle">Vision 2 : BULK (CC) et ABSORPTION (CV) distincts</text>
+
+  <!-- Plot area -->
+  <rect x="80" y="70" width="640" height="340" fill="white" stroke="#ccc" stroke-width="1"/>
+
+  <!-- Phase backgrounds -->
+  <rect x="80" y="70" width="160" height="340" fill="#E3F2FD" class="phase-box"/>
+  <rect x="240" y="70" width="280" height="340" fill="#FFF3E0" class="phase-box"/>
+  <rect x="520" y="70" width="200" height="340" fill="#E8F5E9" class="phase-box"/>
+
+  <!-- Phase labels -->
+  <text x="160" y="95" text-anchor="middle" class="phase-label" fill="#1565C0">BULK (CC)</text>
+  <text x="160" y="112" text-anchor="middle" class="subtitle" fill="#1565C0">I = I_max = 30A</text>
+  <text x="160" y="127" text-anchor="middle" class="subtitle" fill="#1565C0">V monte jusqu'à 13.8V</text>
+
+  <text x="380" y="95" text-anchor="middle" class="phase-label" fill="#E65100">ABSORPTION (CV)</text>
+  <text x="380" y="112" text-anchor="middle" class="subtitle" fill="#E65100">V = 14.1V constant</text>
+  <text x="380" y="127" text-anchor="middle" class="subtitle" fill="#E65100">I décroît jusqu'à 2A</text>
+
+  <text x="620" y="95" text-anchor="middle" class="phase-label" fill="#2E7D32">FLOATING</text>
+  <text x="620" y="112" text-anchor="middle" class="subtitle" fill="#2E7D32">V = 13.5V constant</text>
+  <text x="620" y="127" text-anchor="middle" class="subtitle" fill="#2E7D32">I = I_float = 0.3A</text>
+
+  <!-- Grid lines -->
+  <!-- Horizontal (voltage) -->
+  <line x1="80" y1="130" x2="720" y2="130" class="grid"/>
+  <line x1="80" y1="190" x2="720" y2="190" class="grid"/>
+  <line x1="80" y1="250" x2="720" y2="250" class="grid"/>
+  <line x1="80" y1="310" x2="720" y2="310" class="grid"/>
+  <line x1="80" y1="370" x2="720" y2="370" class="grid"/>
+
+  <!-- Vertical (time) -->
+  <line x1="160" y1="70" x2="160" y2="410" class="grid"/>
+  <line x1="240" y1="70" x2="240" y2="410" class="grid"/>
+  <line x1="320" y1="70" x2="320" y2="410" class="grid"/>
+  <line x1="400" y1="70" x2="400" y2="410" class="grid"/>
+  <line x1="480" y1="70" x2="480" y2="410" class="grid"/>
+  <line x1="560" y1="70" x2="560" y2="410" class="grid"/>
+  <line x1="640" y1="70" x2="640" y2="410" class="grid"/>
+
+  <!-- Axes -->
+  <line x1="80" y1="410" x2="720" y2="410" class="axis"/>
+  <line x1="80" y1="70" x2="80" y2="410" class="axis"/>
+
+  <!-- Y-axis labels (Voltage, left) -->
+  <text x="70" y="415" text-anchor="end" class="axis-label">10</text>
+  <text x="70" y="375" text-anchor="end" class="axis-label">11</text>
+  <text x="70" y="315" text-anchor="end" class="axis-label">12</text>
+  <text x="70" y="255" text-anchor="end" class="axis-label">13</text>
+  <text x="70" y="195" text-anchor="end" class="axis-label">14</text>
+  <text x="70" y="135" text-anchor="end" class="axis-label">15</text>
+  <text x="70" y="75" text-anchor="end" class="axis-label">16</text>
+
+  <!-- Y-axis title (Voltage) -->
+  <text x="25" y="240" text-anchor="middle" class="axis-label" transform="rotate(-90 25 240)">Tension [V]</text>
+
+  <!-- Y-axis labels (Current, right) -->
+  <text x="730" y="415" text-anchor="start" class="axis-label" fill="#FF5722">0</text>
+  <text x="730" y="315" text-anchor="start" class="axis-label" fill="#FF5722">10</text>
+  <text x="730" y="215" text-anchor="start" class="axis-label" fill="#FF5722">20</text>
+  <text x="730" y="115" text-anchor="start" class="axis-label" fill="#FF5722">30</text>
+  <text x="730" y="75" text-anchor="start" class="axis-label" fill="#FF5722">35</text>
+
+  <!-- Y-axis title (Current) -->
+  <text x="775" y="240" text-anchor="middle" class="axis-label" fill="#FF5722" transform="rotate(90 775 240)">Courant [A]</text>
+
+  <!-- X-axis labels -->
+  <text x="80" y="430" text-anchor="middle" class="axis-label">0h</text>
+  <text x="240" y="430" text-anchor="middle" class="axis-label">2h</text>
+  <text x="400" y="430" text-anchor="middle" class="axis-label">4h</text>
+  <text x="560" y="430" text-anchor="middle" class="axis-label">6h</text>
+  <text x="720" y="430" text-anchor="middle" class="axis-label">8h</text>
+
+  <!-- X-axis title -->
+  <text x="400" y="455" text-anchor="middle" class="axis-label">Temps [h]</text>
+
+  <!-- Voltage curve -->
+  <!-- BULK: 12.0V -> 13.8V (0-2h) -->
+  <path d="M 80 370 L 160 250 L 240 250" class="voltage-line"/>
+  <!-- ABSORPTION: 13.8V -> 14.1V (2-5h) -->
+  <path d="M 240 250 L 320 230 L 400 220 L 480 220 L 520 220" class="voltage-line"/>
+  <!-- FLOATING: 14.1V -> 13.5V (5-5.5h) then constant -->
+  <path d="M 520 220 L 540 250 L 560 250 L 720 250" class="voltage-line"/>
+
+  <!-- Current curve (dashed) -->
+  <!-- BULK: 30A constant -->
+  <path d="M 80 100 L 240 100" class="current-line"/>
+  <!-- ABSORPTION: 30A -> 2A -->
+  <path d="M 240 100 L 320 140 L 400 200 L 480 370 L 520 370" class="current-line"/>
+  <!-- FLOATING: 2A -> 0.3A -->
+  <path d="M 520 370 L 560 400 L 720 400" class="current-line"/>
+
+  <!-- Key points annotations -->
+  <circle cx="240" cy="250" r="5" fill="#2196F3" stroke="white" stroke-width="2"/>
+  <text x="240" y="235" text-anchor="middle" class="subtitle" fill="#1565C0">V_bulk = 13.8V</text>
+
+  <circle cx="520" cy="220" r="5" fill="#2196F3" stroke="white" stroke-width="2"/>
+  <text x="520" y="205" text-anchor="middle" class="subtitle" fill="#E65100">V_abs = 14.1V</text>
+
+  <circle cx="560" cy="250" r="5" fill="#2196F3" stroke="white" stroke-width="2"/>
+  <text x="560" y="270" text-anchor="middle" class="subtitle" fill="#2E7D32">V_float = 13.5V</text>
+
+  <!-- Legend -->
+  <rect x="500" y="320" width="200" height="70" fill="white" stroke="#ccc" rx="5"/>
+  <line x1="515" y1="340" x2="545" y2="340" class="voltage-line"/>
+  <text x="555" y="344" class="legend-text">Tension [V]</text>
+  <line x1="515" y1="365" x2="545" y2="365" class="current-line"/>
+  <text x="555" y="369" class="legend-text">Courant [A]</text>
+
+  <!-- Transition arrows -->
+  <line x1="240" y1="340" x2="240" y2="290" stroke="#666" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="245" y="320" class="subtitle" fill="#666">I=I_max</text>
+
+  <line x1="520" y1="340" x2="520" y2="290" stroke="#666" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <text x="525" y="320" class="subtitle" fill="#666">I≤I_end</text>
+</svg>

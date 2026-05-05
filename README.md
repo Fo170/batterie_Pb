@@ -20,6 +20,14 @@ Bibliothèque C/C++ complète de gestion des batteries au plomb-acide pour syst�
 - ✅ Compatible **C99** et **C++11+**
 - ✅ Prêt pour **PlatformIO**, **Arduino IDE**, **STM32**, **AVR**, **ESP8266**, **ESP32**, **Raspberry Pi Pico** , ...
 
+
+| Section               | Image                         | Description               |
+| --------------------- | ----------------------------- | ------------------------- |
+| **Phases de charge**  | `svg/01_charge_curve.svg`     | Courbe CC/CV complète     |
+| **Vision 2**          | `svg/03_state_machine.svg`    | Diagramme machine à états |
+| **Tables de tension** | `svg/02_soc_voltage.svg`      | Tension OCV vs SOC        |
+| **Avant changements** | `svg/04_discharge_curves.svg` | Courbes de décharge       |
+
 ---
 
 ## 📊 Références & Origine des données
