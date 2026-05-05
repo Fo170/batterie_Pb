@@ -85,12 +85,7 @@ cp batterie_Pb/src/batterie_Pb.h /chemin/vers/votre/projet/
 
 Ajouter au `platformio.ini` :
 
-```ini
-lib_deps =
-    fo170/batterie_Pb
-```
-
-Ou directement depuis GitHub :
+directement depuis GitHub :
 
 ```ini
 lib_deps =
