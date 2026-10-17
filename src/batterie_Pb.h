@@ -1,13 +1,13 @@
 /**
  * @file batterie_Pb.h
  * @brief Bibliotheque complete de gestion des batteries au plomb-acide
- * @version 1.1.0 - Corrige selon Vision 2 (BULK/ABSORPTION distincts)
- *         + constantes universelles par element
- *         + timer de charge fonctionnel
- *         + compensation thermique sur tables
+ * @version 1.2.0 - Corrections critiques + ameliorations
+ *         + timer hysteresis, timer equalization separe
+ *         + synchronisation flags, auto-decharge
+ *         + seuil OCV configurable, codes erreur specifiques
  * @author Fo170
  *
- * Base sur le livre "Energie solaire photovoltaique" de Anne Labouret 
+ * Base sur le livre "Energie solaire photovoltaique" de Anne Labouret
  * et Michel Villoz (p.89-136)
  * et sources : https://www.batterie-solaire.com/accumulateur-plomb-principe-fonctionnement.htm
  * https://fr.wikipedia.org/wiki/Batterie_au_plomb
@@ -20,6 +20,9 @@
 #ifndef _BAT_PB_H_
 #define _BAT_PB_H_
 
+
+// Version de la librairie (source UNIQUE — agrégée par liste_lib.h)
+#define __BATTERIE_PB_H_VERSION__ "1.1.0"
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -30,7 +33,21 @@ extern "C" {
 #endif
 
 /* ==========================================================================
- *  SECTION 1: CONSTANTES PHYSIQUES ET ELECTROCHIMIQUES
+ *  SECTION 1: CODES D'ERREUR
+ * ========================================================================== */
+
+#define BAT_OK                          0
+#define BAT_ERR_NULL_PTR               -1
+#define BAT_ERR_INVALID_TYPE           -2
+#define BAT_ERR_ZERO_CELLS             -3
+#define BAT_ERR_NEG_CAPACITY           -4
+#define BAT_ERR_INVALID_C_RATE         -5
+#define BAT_ERR_INVALID_DOD            -6
+#define BAT_ERR_INVALID_SOC            -7
+#define BAT_ERR_INVALID_DT             -8
+
+/* ==========================================================================
+ *  SECTION 2: CONSTANTES PHYSIQUES ET ELECTROCHIMIQUES
  * ========================================================================== */
 
 /** Rendement energetique theorique des batteries au plomb (70-75%) */
@@ -60,11 +77,14 @@ extern "C" {
 /** Profondeur de decharge critique (endommagement) [%] */
 #define BAT_PB_CRITICAL_DOD             100.0f
 
-/** Seuil de courant pour detecter la charge [A] */
-#define BAT_CHARGE_CURRENT_THRESHOLD    0.05f
+/** Seuil de courant pour detecter la charge [fraction de C] */
+#define BAT_CHARGE_CURRENT_THRESHOLD_C  0.0005f     /* 0.05% de C */
 
-/** Seuil de courant pour detecter la decharge [A] */
-#define BAT_DISCHARGE_CURRENT_THRESHOLD (-0.05f)
+/** Seuil de courant pour detecter la decharge [fraction de C] */
+#define BAT_DISCHARGE_CURRENT_THRESHOLD_C (-0.0005f)  /* -0.05% de C */
+
+/** Seuil de courant pour estimation OCV [fraction de C] */
+#define BAT_OCV_CURRENT_THRESHOLD_C     0.001f      /* 0.1% de C = vrai repos */
 
 /** Duree minimale d'absorption [heures] */
 #define BAT_MIN_ABSORPTION_TIME_H       1.0f
@@ -84,8 +104,11 @@ extern "C" {
 /** Delta temperature minimum pour recalculer les seuils [C] */
 #define BAT_TEMP_RECALC_DELTA           2.0f
 
+/** Duree avant reset du timer de charge en cas d'interruption [secondes] */
+#define BAT_CHARGE_TIMER_HYSTERESIS_S   60.0f       /* 1 minute de grace */
+
 /* ==========================================================================
- *  SECTION 2: SEUILS DE TENSION PAR ELEMENT [V/element @ 25C]
+ *  SECTION 3: SEUILS DE TENSION PAR ELEMENT [V/element @ 25C]
  *  Universels - utiliser bat_pb_cell_to_total() pour n'importe quel nombre
  *  d'elements (1, 3, 6, 12, etc.)
  * ========================================================================== */
@@ -113,7 +136,7 @@ extern "C" {
 #define BAT_12V_BOOST                   bat_pb_cell_to_total(BAT_CELL_BOOST, 6)
 
 /* ==========================================================================
- *  SECTION 3: ENUMERATIONS
+ *  SECTION 4: ENUMERATIONS
  * ========================================================================== */
 
 /** Technologies de batteries au plomb supportees */
@@ -162,8 +185,7 @@ typedef enum {
 } bat_c_rate_t;
 
 /* ==========================================================================
- *  SECTION 4: CONSTANTES PAR TYPE [V/element @ 25C]
- *  Source: Labouret & Villoz, p.89-136, complete par datasheets
+ *  SECTION 5: CONSTANTES PAR TYPE [V/element @ 25C]
  * ========================================================================== */
 
 /** Tension de fin de charge (coupure haute) - mode tout ou rien [V/element] */
@@ -247,140 +269,75 @@ static const uint16_t BAT_EQUALIZATION_PERIOD_DAYS[BAT_TYPE_COUNT] = {
 };
 
 /* ==========================================================================
- *  SECTION 5: TABLES DE TENSION DE DELESTAGE [V/element @ 25C]
- *
- *  Source principale: Labouret & Villoz, p.89-136 (batteries liquides)
- *  Les valeurs pour AGM/GEL sont derivees avec ajustement +0.01 a +0.02V
- *
- *  Index: profondeur de decharge 10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%, 100%
+ *  SECTION 6: TABLES DE TENSION
  * ========================================================================== */
 
 #define BAT_DOD_TABLE_SIZE 10
+#define BAT_SOC_TABLE_SIZE 10
+#define BAT_OCV_TABLE_SIZE 11
 
-/** Tensions de delestage pour C/100 [V/element] - tres faible courant */
 static const float BAT_VDL_C100_PER_CELL[BAT_TYPE_COUNT][BAT_DOD_TABLE_SIZE] = {
-    /* SN-Pb Liquide - Source: Labouret & Villoz */
     {2.14f, 2.12f, 2.10f, 2.08f, 2.05f, 2.02f, 2.00f, 1.96f, 1.92f, 1.80f},
-    /* CA-Pb Liquide - Source: Labouret & Villoz */
     {2.14f, 2.12f, 2.10f, 2.08f, 2.05f, 2.02f, 2.00f, 1.96f, 1.92f, 1.80f},
-    /* AGM - Derivee */
     {2.15f, 2.13f, 2.11f, 2.09f, 2.06f, 2.03f, 2.01f, 1.97f, 1.93f, 1.82f},
-    /* GEL - Derivee */
     {2.16f, 2.14f, 2.12f, 2.10f, 2.07f, 2.04f, 2.02f, 1.98f, 1.94f, 1.83f}
 };
 
-/** Tensions de delestage pour C/50 [V/element] */
 static const float BAT_VDL_C50_PER_CELL[BAT_TYPE_COUNT][BAT_DOD_TABLE_SIZE] = {
-    /* SN-Pb Liquide - Interpole entre C100 et C20 */
     {2.13f, 2.11f, 2.09f, 2.07f, 2.04f, 2.01f, 1.99f, 1.95f, 1.91f, 1.79f},
-    /* CA-Pb Liquide */
     {2.13f, 2.11f, 2.09f, 2.07f, 2.04f, 2.01f, 1.99f, 1.95f, 1.91f, 1.79f},
-    /* AGM */
     {2.14f, 2.12f, 2.10f, 2.08f, 2.05f, 2.02f, 2.00f, 1.96f, 1.92f, 1.81f},
-    /* GEL */
     {2.15f, 2.13f, 2.11f, 2.09f, 2.06f, 2.03f, 2.01f, 1.97f, 1.93f, 1.82f}
 };
 
-/** Tensions de delestage pour C/20 [V/element] - taux standard */
 static const float BAT_VDL_C20_PER_CELL[BAT_TYPE_COUNT][BAT_DOD_TABLE_SIZE] = {
-    /* SN-Pb Liquide - Source: Labouret & Villoz */
     {2.11f, 2.09f, 2.07f, 2.05f, 2.03f, 2.00f, 1.98f, 1.95f, 1.91f, 1.80f},
-    /* CA-Pb Liquide - Source: Labouret & Villoz */
     {2.11f, 2.09f, 2.07f, 2.05f, 2.03f, 2.00f, 1.98f, 1.95f, 1.91f, 1.80f},
-    /* AGM - Derivee */
     {2.12f, 2.10f, 2.08f, 2.06f, 2.04f, 2.01f, 1.99f, 1.96f, 1.92f, 1.81f},
-    /* GEL - Derivee */
     {2.13f, 2.11f, 2.09f, 2.07f, 2.05f, 2.02f, 2.00f, 1.97f, 1.93f, 1.82f}
 };
 
-/** Tensions de delestage pour C/10 [V/element] - fort courant */
 static const float BAT_VDL_C10_PER_CELL[BAT_TYPE_COUNT][BAT_DOD_TABLE_SIZE] = {
-    /* SN-Pb Liquide - Source: Labouret & Villoz */
     {2.08f, 2.07f, 2.05f, 2.04f, 2.01f, 1.99f, 1.96f, 1.93f, 1.89f, 1.80f},
-    /* CA-Pb Liquide - Source: Labouret & Villoz */
     {2.08f, 2.07f, 2.05f, 2.04f, 2.01f, 1.99f, 1.96f, 1.93f, 1.89f, 1.80f},
-    /* AGM - Derivee */
     {2.09f, 2.08f, 2.06f, 2.05f, 2.02f, 2.00f, 1.97f, 1.94f, 1.90f, 1.81f},
-    /* GEL - Derivee */
     {2.10f, 2.09f, 2.07f, 2.06f, 2.03f, 2.01f, 1.98f, 1.95f, 1.91f, 1.82f}
 };
 
-/** Tensions de delestage pour C/5 [V/element] - tres fort courant */
 static const float BAT_VDL_C5_PER_CELL[BAT_TYPE_COUNT][BAT_DOD_TABLE_SIZE] = {
-    /* SN-Pb Liquide - Extrapole */
     {2.05f, 2.04f, 2.02f, 2.01f, 1.98f, 1.96f, 1.93f, 1.90f, 1.86f, 1.78f},
-    /* CA-Pb Liquide */
     {2.05f, 2.04f, 2.02f, 2.01f, 1.98f, 1.96f, 1.93f, 1.90f, 1.86f, 1.78f},
-    /* AGM */
     {2.06f, 2.05f, 2.03f, 2.02f, 1.99f, 1.97f, 1.94f, 1.91f, 1.87f, 1.79f},
-    /* GEL */
     {2.07f, 2.06f, 2.04f, 2.03f, 2.00f, 1.98f, 1.95f, 1.92f, 1.88f, 1.80f}
 };
 
-/* ==========================================================================
- *  SECTION 6: TABLES DE TENSION DE REENCLENCHEMENT [V/element @ 25C]
- *
- *  Source principale: Labouret & Villoz, p.89-136 (batteries liquides)
- *
- *  Index: etat de charge 0%, 10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%
- * ========================================================================== */
-
-#define BAT_SOC_TABLE_SIZE 10
-
-/** Tensions de reenclenchement pour C/10 [V/element] */
 static const float BAT_VRL_C10_PER_CELL[BAT_TYPE_COUNT][BAT_SOC_TABLE_SIZE] = {
-    /* SN-Pb Liquide - Source: Labouret & Villoz */
     {2.08f, 2.09f, 2.12f, 2.15f, 2.19f, 2.23f, 2.27f, 2.34f, 2.43f, 2.61f},
-    /* CA-Pb Liquide - Source: Labouret & Villoz */
     {2.08f, 2.09f, 2.12f, 2.15f, 2.19f, 2.23f, 2.27f, 2.34f, 2.43f, 2.61f},
-    /* AGM - Derivee */
     {2.09f, 2.10f, 2.13f, 2.16f, 2.20f, 2.24f, 2.28f, 2.35f, 2.44f, 2.62f},
-    /* GEL - Derivee */
     {2.10f, 2.11f, 2.14f, 2.17f, 2.21f, 2.25f, 2.29f, 2.36f, 2.45f, 2.63f}
 };
 
-/** Tensions de reenclenchement pour C/20 [V/element] */
 static const float BAT_VRL_C20_PER_CELL[BAT_TYPE_COUNT][BAT_SOC_TABLE_SIZE] = {
-    /* SN-Pb Liquide - Source: Labouret & Villoz */
     {2.05f, 2.07f, 2.10f, 2.13f, 2.17f, 2.21f, 2.25f, 2.32f, 2.43f, 2.60f},
-    /* CA-Pb Liquide - Source: Labouret & Villoz */
     {2.05f, 2.07f, 2.10f, 2.13f, 2.17f, 2.21f, 2.25f, 2.32f, 2.43f, 2.60f},
-    /* AGM - Derivee */
     {2.06f, 2.08f, 2.11f, 2.14f, 2.18f, 2.22f, 2.26f, 2.33f, 2.44f, 2.61f},
-    /* GEL - Derivee */
     {2.07f, 2.09f, 2.12f, 2.15f, 2.19f, 2.23f, 2.27f, 2.34f, 2.45f, 2.62f}
 };
 
-/** Tensions de reenclenchement pour C/50 [V/element] */
 static const float BAT_VRL_C50_PER_CELL[BAT_TYPE_COUNT][BAT_SOC_TABLE_SIZE] = {
-    /* SN-Pb Liquide - Source: Labouret & Villoz */
     {2.01f, 2.03f, 2.07f, 2.10f, 2.14f, 2.17f, 2.21f, 2.27f, 2.34f, 2.47f},
-    /* CA-Pb Liquide - Source: Labouret & Villoz */
     {2.01f, 2.03f, 2.07f, 2.10f, 2.14f, 2.17f, 2.21f, 2.27f, 2.34f, 2.47f},
-    /* AGM - Derivee */
     {2.02f, 2.04f, 2.08f, 2.11f, 2.15f, 2.18f, 2.22f, 2.28f, 2.35f, 2.48f},
-    /* GEL - Derivee */
     {2.03f, 2.05f, 2.09f, 2.12f, 2.16f, 2.19f, 2.23f, 2.29f, 2.36f, 2.49f}
 };
 
-/** Tensions de reenclenchement pour C/100 [V/element] */
 static const float BAT_VRL_C100_PER_CELL[BAT_TYPE_COUNT][BAT_SOC_TABLE_SIZE] = {
-    /* SN-Pb Liquide - Source: Labouret & Villoz */
     {1.99f, 2.02f, 2.06f, 2.09f, 2.13f, 2.16f, 2.20f, 2.26f, 2.32f, 2.46f},
-    /* CA-Pb Liquide - Source: Labouret & Villoz */
     {1.99f, 2.02f, 2.06f, 2.09f, 2.13f, 2.16f, 2.20f, 2.26f, 2.32f, 2.46f},
-    /* AGM - Derivee */
     {2.00f, 2.03f, 2.07f, 2.10f, 2.14f, 2.17f, 2.21f, 2.27f, 2.33f, 2.47f},
-    /* GEL - Derivee */
     {2.01f, 2.04f, 2.08f, 2.11f, 2.15f, 2.18f, 2.22f, 2.28f, 2.34f, 2.48f}
 };
-
-/* ==========================================================================
- *  SECTION 7: TABLE OCV -> SOC [V/element @ 25C]
- *  Tension au repos (Open Circuit Voltage) en fonction du SOC
- * ========================================================================== */
-
-#define BAT_OCV_TABLE_SIZE 11
 
 static const float BAT_OCV_SOC_TABLE[BAT_OCV_TABLE_SIZE] = {
     0.0f, 10.0f, 20.0f, 30.0f, 40.0f, 50.0f,
@@ -399,7 +356,7 @@ static const float BAT_OCV_PER_CELL[BAT_TYPE_COUNT][BAT_OCV_TABLE_SIZE] = {
 };
 
 /* ==========================================================================
- *  SECTION 8: STRUCTURES DE DONNEES
+ *  SECTION 7: STRUCTURES DE DONNEES
  * ========================================================================== */
 
 /** Configuration statique de la batterie */
@@ -450,7 +407,9 @@ typedef struct {
     float dod_percent;                /**< DOD [%] */
     bat_soc_level_t soc_level;        /**< Niveau qualitatif SOC */
     bat_charge_phase_t charge_phase;  /**< Phase de charge */
-    float charge_time_hours;          /**< Duree phase charge [h] */
+    float charge_time_hours;          /**< Duree phase charge/absorption [h] */
+    float equalization_time_hours;    /**< Duree phase equalization [h] - SEPARE */
+    float charge_timer_hysteresis_s;  /**< Compteur hysteresis reset [s] */
     bool is_charging;                 /**< En charge */
     bool is_discharging;              /**< En decharge */
     bool is_floating;                 /**< En floating */
@@ -461,7 +420,6 @@ typedef struct {
     float total_ah_charged;           /**< Ah charges cumules */
     float total_ah_discharged;        /**< Ah decharges cumules */
     uint32_t days_since_equalization;   /**< Jours depuis equalization */
-    /* Champs pour coulomb counting */
     float coulomb_ah;                 /**< Integrale de Coulomb (Ah) */
     float last_soc_for_cycles;        /**< Dernier SOC pour comptage cycles */
     float cumulative_dod;             /**< DOD cumule pour cycles */
@@ -478,50 +436,27 @@ typedef struct {
 } bat_pb_t;
 
 /* ==========================================================================
- *  SECTION 9: FONCTIONS UTILITAIRES (INLINE)
+ *  SECTION 8: FONCTIONS UTILITAIRES (INLINE)
  * ========================================================================== */
 
-/**
- * @brief Applique la compensation thermique a une tension par element
- * @param V_per_cell Tension par element a compenser [V/element]
- * @param temp Temperature actuelle [C]
- * @param temp_ref Temperature de reference [C]
- * @return Tension compensee [V/element]
- */
 static inline float bat_pb_temp_compensate(float V_per_cell, float temp, float temp_ref) {
     return V_per_cell + BAT_PB_TEMP_COEFF_PER_CELL * (temp - temp_ref);
 }
 
-/**
- * @brief Convertit une tension par element en tension totale
- */
 static inline float bat_pb_cell_to_total(float V_per_cell, uint8_t nb_cells) {
     return V_per_cell * (float)nb_cells;
 }
 
-/**
- * @brief Convertit une tension totale en tension par element
- */
 static inline float bat_pb_total_to_cell(float V_total, uint8_t nb_cells) {
     return (nb_cells > 0) ? (V_total / (float)nb_cells) : 0.0f;
 }
 
-/**
- * @brief Interpolation lineaire entre deux points
- * @param x Valeur d'entree
- * @param x0, x1 Bornes de l'intervalle
- * @param y0, y1 Valeurs correspondantes
- * @return Valeur interpolee
- */
 static inline float bat_pb_interpolate(float x, float x0, float x1, float y0, float y1) {
     if (x <= x0) return y0;
     if (x >= x1) return y1;
     return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
 }
 
-/**
- * @brief Retourne le nom du type de batterie
- */
 static inline const char* bat_pb_type_to_string(bat_pb_type_t type) {
     switch (type) {
         case BAT_TYPE_SN_PB_LIQUIDE: return "Plomb-Antimoine (Liquide)";
@@ -532,9 +467,6 @@ static inline const char* bat_pb_type_to_string(bat_pb_type_t type) {
     }
 }
 
-/**
- * @brief Retourne le nom de la phase de charge
- */
 static inline const char* bat_pb_phase_to_string(bat_charge_phase_t phase) {
     switch (phase) {
         case BAT_CHARGE_PHASE_IDLE: return "Inactif";
@@ -546,9 +478,6 @@ static inline const char* bat_pb_phase_to_string(bat_charge_phase_t phase) {
     }
 }
 
-/**
- * @brief Retourne le nom du taux de decharge
- */
 static inline const char* bat_pb_crate_to_string(bat_c_rate_t rate) {
     switch (rate) {
         case BAT_C_RATE_C100: return "C/100";
@@ -560,29 +489,32 @@ static inline const char* bat_pb_crate_to_string(bat_c_rate_t rate) {
     }
 }
 
+static inline const char* bat_pb_err_to_string(int err) {
+    switch (err) {
+        case BAT_OK: return "OK";
+        case BAT_ERR_NULL_PTR: return "Pointeur NULL";
+        case BAT_ERR_INVALID_TYPE: return "Type invalide";
+        case BAT_ERR_ZERO_CELLS: return "0 elements";
+        case BAT_ERR_NEG_CAPACITY: return "Capacite negative";
+        case BAT_ERR_INVALID_C_RATE: return "C-rate invalide";
+        case BAT_ERR_INVALID_DOD: return "DOD invalide";
+        case BAT_ERR_INVALID_SOC: return "SOC invalide";
+        case BAT_ERR_INVALID_DT: return "dt invalide";
+        default: return "Erreur inconnue";
+    }
+}
+
 /* ==========================================================================
- *  SECTION 10: FONCTIONS D'ACCES AUX TABLEAUX (AVEC INTERPOLATION)
+ *  SECTION 9: FONCTIONS D'ACCES AUX TABLEAUX
  * ========================================================================== */
 
-/**
- * @brief Recupere la tension de delestage pour un DOD et un taux donnes
- * avec interpolation lineaire et compensation thermique.
- *
- * @param type Type de batterie
- * @param dod_pct Profondeur de decharge [%] (0-100)
- * @param rate Taux de decharge
- * @param nb_cells Nombre d'elements en serie
- * @param temp Temperature actuelle [C] (pour compensation)
- * @param temp_ref Temperature de reference [C]
- * @return Tension de delestage [V], 0.0f si erreur
- */
 static inline float bat_pb_get_disconnect_voltage(bat_pb_type_t type, float dod_pct,
                                                    bat_c_rate_t rate, uint8_t nb_cells,
                                                    float temp, float temp_ref)
 {
-    if (type >= BAT_TYPE_COUNT || dod_pct < 0.0f || dod_pct > 100.0f || nb_cells == 0) {
-        return 0.0f;
-    }
+    if (type >= BAT_TYPE_COUNT) return 0.0f;
+    if (dod_pct < 0.0f || dod_pct > 100.0f) return 0.0f;
+    if (nb_cells == 0) return 0.0f;
 
     const float (*table)[BAT_DOD_TABLE_SIZE];
     switch (rate) {
@@ -594,7 +526,6 @@ static inline float bat_pb_get_disconnect_voltage(bat_pb_type_t type, float dod_
         default: return 0.0f;
     }
 
-    /* Index dans la table DOD (10%, 20%, ..., 100%) */
     float idx_f = (dod_pct / 10.0f) - 1.0f;
     int idx_low = (int)idx_f;
     int idx_high = idx_low + 1;
@@ -608,32 +539,19 @@ static inline float bat_pb_get_disconnect_voltage(bat_pb_type_t type, float dod_
         return bat_pb_cell_to_total(V_cell_comp, nb_cells);
     }
 
-    /* Interpolation lineaire */
     float frac = idx_f - (float)idx_low;
     float V_cell = table[type][idx_low] + frac * (table[type][idx_high] - table[type][idx_low]);
     float V_cell_comp = bat_pb_temp_compensate(V_cell, temp, temp_ref);
     return bat_pb_cell_to_total(V_cell_comp, nb_cells);
 }
 
-/**
- * @brief Recupere la tension de reconnexion pour un SOC et un taux donnes
- * avec interpolation lineaire et compensation thermique.
- *
- * @param type Type de batterie
- * @param soc_pct Etat de charge [%] (0-100)
- * @param rate Taux de decharge
- * @param nb_cells Nombre d'elements en serie
- * @param temp Temperature actuelle [C] (pour compensation)
- * @param temp_ref Temperature de reference [C]
- * @return Tension de reconnexion [V], 0.0f si erreur
- */
 static inline float bat_pb_get_reconnect_voltage(bat_pb_type_t type, float soc_pct,
                                                   bat_c_rate_t rate, uint8_t nb_cells,
                                                   float temp, float temp_ref)
 {
-    if (type >= BAT_TYPE_COUNT || soc_pct < 0.0f || soc_pct > 100.0f || nb_cells == 0) {
-        return 0.0f;
-    }
+    if (type >= BAT_TYPE_COUNT) return 0.0f;
+    if (soc_pct < 0.0f || soc_pct > 100.0f) return 0.0f;
+    if (nb_cells == 0) return 0.0f;
 
     const float (*table)[BAT_SOC_TABLE_SIZE];
     switch (rate) {
@@ -641,10 +559,9 @@ static inline float bat_pb_get_reconnect_voltage(bat_pb_type_t type, float soc_p
         case BAT_C_RATE_C50:  table = BAT_VRL_C50_PER_CELL;  break;
         case BAT_C_RATE_C20:  table = BAT_VRL_C20_PER_CELL;  break;
         case BAT_C_RATE_C10:  table = BAT_VRL_C10_PER_CELL;  break;
-        default: return 0.0f;   /* C5 non defini pour reconnexion */
+        default: return 0.0f;
     }
 
-    /* Index dans la table SOC (0%, 10%, ..., 90%) */
     float idx_f = soc_pct / 10.0f;
     int idx_low = (int)idx_f;
     int idx_high = idx_low + 1;
@@ -658,22 +575,12 @@ static inline float bat_pb_get_reconnect_voltage(bat_pb_type_t type, float soc_p
         return bat_pb_cell_to_total(V_cell_comp, nb_cells);
     }
 
-    /* Interpolation lineaire */
     float frac = idx_f - (float)idx_low;
     float V_cell = table[type][idx_low] + frac * (table[type][idx_high] - table[type][idx_low]);
     float V_cell_comp = bat_pb_temp_compensate(V_cell, temp, temp_ref);
     return bat_pb_cell_to_total(V_cell_comp, nb_cells);
 }
 
-/**
- * @brief Estime le SOC a partir de la tension OCV (batterie au repos)
- * avec interpolation lineaire dans la table OCV.
- *
- * @param type Type de batterie
- * @param V_ocv Tension OCV mesuree [V]
- * @param nb_cells Nombre d'elements en serie
- * @return SOC estime [%] (0-100), -1.0f si erreur
- */
 static inline float bat_pb_estimate_soc_from_ocv(bat_pb_type_t type, float V_ocv, uint8_t nb_cells)
 {
     if (type >= BAT_TYPE_COUNT || nb_cells == 0) {
@@ -683,15 +590,9 @@ static inline float bat_pb_estimate_soc_from_ocv(bat_pb_type_t type, float V_ocv
     float V_cell = bat_pb_total_to_cell(V_ocv, nb_cells);
     const float *ocv_table = BAT_OCV_PER_CELL[type];
 
-    /* Hors limites */
-    if (V_cell <= ocv_table[0]) {
-        return 0.0f;
-    }
-    if (V_cell >= ocv_table[BAT_OCV_TABLE_SIZE - 1]) {
-        return 100.0f;
-    }
+    if (V_cell <= ocv_table[0]) return 0.0f;
+    if (V_cell >= ocv_table[BAT_OCV_TABLE_SIZE - 1]) return 100.0f;
 
-    /* Recherche et interpolation */
     for (int i = 0; i < BAT_OCV_TABLE_SIZE - 1; i++) {
         if (V_cell >= ocv_table[i] && V_cell <= ocv_table[i + 1]) {
             return bat_pb_interpolate(V_cell, ocv_table[i], ocv_table[i + 1],
@@ -701,12 +602,6 @@ static inline float bat_pb_estimate_soc_from_ocv(bat_pb_type_t type, float V_ocv
     return -1.0f;
 }
 
-/**
- * @brief Verifie si l'equalisation est autorisee pour ce type de batterie
- *
- * @param bat Pointeur vers la structure batterie
- * @return true si l'equalisation est autorisee et necessaire
- */
 static inline bool bat_pb_is_equalization_allowed(const bat_pb_t *bat)
 {
     if (bat == NULL) return false;
@@ -718,25 +613,16 @@ static inline bool bat_pb_is_equalization_allowed(const bat_pb_t *bat)
 }
 
 /* ==========================================================================
- *  SECTION 11: FONCTIONS D'INITIALISATION ET DE CALCUL
+ *  SECTION 10: INITIALISATION ET CALCUL
  * ========================================================================== */
 
-/**
- * @brief Initialise la structure batterie avec les parametres par defaut
- *
- * @param bat Pointeur vers la structure a initialiser
- * @param type Type de batterie
- * @param nb_cells Nombre d'elements en serie
- * @param capacity Capacite nominale [Ah]
- * @param mode Mode de regulation
- * @return 0 si succes, -1 si erreur (parametres invalides)
- */
 static inline int bat_pb_init(bat_pb_t *bat, bat_pb_type_t type, uint8_t nb_cells,
                                float capacity, bat_regulator_mode_t mode)
 {
-    if (bat == NULL || type >= BAT_TYPE_COUNT || nb_cells == 0 || capacity <= 0.0f) {
-        return -1;
-    }
+    if (bat == NULL) return BAT_ERR_NULL_PTR;
+    if (type >= BAT_TYPE_COUNT) return BAT_ERR_INVALID_TYPE;
+    if (nb_cells == 0) return BAT_ERR_ZERO_CELLS;
+    if (capacity <= 0.0f) return BAT_ERR_NEG_CAPACITY;
 
     memset(bat, 0, sizeof(bat_pb_t));
 
@@ -746,7 +632,6 @@ static inline int bat_pb_init(bat_pb_t *bat, bat_pb_type_t type, uint8_t nb_cell
     bat->config.capacity_ah = capacity;
     bat->config.temp_ref = BAT_PB_TEMP_REF;
 
-    /* Etat initial */
     bat->state.charge_phase = BAT_CHARGE_PHASE_IDLE;
     bat->state.soc_percent = 50.0f;
     bat->state.soc_level = BAT_SOC_MEDIUM;
@@ -758,32 +643,22 @@ static inline int bat_pb_init(bat_pb_t *bat, bat_pb_type_t type, uint8_t nb_cell
     bat->state.last_temperature = BAT_PB_TEMP_REF;
     bat->state.first_measurement = true;
 
-    return 0;
+    return BAT_OK;
 }
 
-/**
- * @brief Calcule les seuils de tension pour la batterie
- * Applique la compensation thermique si la temperature est differente
- * de la temperature de reference.
- *
- * @param bat Pointeur vers la structure batterie
- * @return 0 si succes
- */
 static inline int bat_pb_compute_thresholds(bat_pb_t *bat)
 {
-    if (bat == NULL) return -1;
+    if (bat == NULL) return BAT_ERR_NULL_PTR;
 
     uint8_t n = bat->config.nb_elements;
     bat_pb_type_t t = bat->config.type;
     float temp = bat->state.temperature;
     float temp_ref = bat->config.temp_ref;
 
-    /* Seuils de securite */
     bat->thresholds.V_cutoff_discharge = bat_pb_cell_to_total(BAT_CELL_CUTOFF_EMPTY, n);
     bat->thresholds.V_cutoff_charge = bat_pb_cell_to_total(BAT_CELL_CUTOFF_FULL_FLOAT, n);
     bat->thresholds.V_gas = bat_pb_cell_to_total(BAT_PB_V_GAS_PER_CELL, n);
 
-    /* Seuils CC/CV avec compensation thermique */
     float V_bulk_cell = bat_pb_temp_compensate(BAT_CELL_BULK_THRESHOLD, temp, temp_ref);
     float V_abs_cell  = bat_pb_temp_compensate(BAT_CELL_ABSORPTION, temp, temp_ref);
     float V_float_cell = bat_pb_temp_compensate(BAT_CELL_FLOATING, temp, temp_ref);
@@ -796,32 +671,24 @@ static inline int bat_pb_compute_thresholds(bat_pb_t *bat)
     bat->thresholds.V_boost = bat_pb_cell_to_total(V_boost_cell, n);
     bat->thresholds.V_equalization = bat_pb_cell_to_total(V_equal_cell, n);
 
-    /* Seuils OCV */
     bat->thresholds.V_ocv_empty = bat_pb_cell_to_total(BAT_CELL_OCV_EMPTY, n);
     bat->thresholds.V_ocv_full = bat_pb_cell_to_total(BAT_CELL_OCV_FULL, n);
 
-    /* Seuils mode tout ou rien avec compensation */
     float Vfc_cell = bat_pb_temp_compensate(BAT_VFC_PER_CELL[t], temp, temp_ref);
     float Vrc_cell = bat_pb_temp_compensate(BAT_VRC_PER_CELL[t], temp, temp_ref);
 
     bat->thresholds.V_end_of_charge = bat_pb_cell_to_total(Vfc_cell, n);
     bat->thresholds.V_recharge = bat_pb_cell_to_total(Vrc_cell, n);
 
-    /* Delestage et reconnexion par defaut a 50% avec interpolation + compensation */
     bat->thresholds.V_delestage = bat_pb_get_disconnect_voltage(t, 50.0f, BAT_C_RATE_C20, n, temp, temp_ref);
     bat->thresholds.V_reconnect = bat_pb_get_reconnect_voltage(t, 50.0f, BAT_C_RATE_C20, n, temp, temp_ref);
 
-    return 0;
+    return BAT_OK;
 }
 
-/**
- * @brief Calcule les courants de charge pour la batterie
- * @param bat Pointeur vers la structure batterie
- * @return 0 si succes
- */
 static inline int bat_pb_compute_currents(bat_pb_t *bat)
 {
-    if (bat == NULL) return -1;
+    if (bat == NULL) return BAT_ERR_NULL_PTR;
 
     bat_pb_type_t t = bat->config.type;
     float C = bat->config.capacity_ah;
@@ -837,24 +704,23 @@ static inline int bat_pb_compute_currents(bat_pb_t *bat)
         bat->currents.I_equalization = 0.0f;
     }
 
-    return 0;
+    return BAT_OK;
 }
 
-/**
- * @brief Met a jour l'etat de la batterie avec les nouvelles mesures.
- * A appeler a intervalle regulier (typiquement toutes les secondes).
- *
- * @param bat Pointeur vers la structure batterie
- * @param V_meas Tension mesuree [V]
- * @param I_meas Courant mesure [A] (>0 charge, <0 decharge)
- * @param temp_meas Temperature mesuree [C]
- * @param dt_seconds Temps ecoule depuis le dernier appel [s]
- * @return 0 si succes
- */
+/* ==========================================================================
+ *  SECTION 11: MISE A JOUR ET ETAT
+ * ========================================================================== */
+
 static inline int bat_pb_update_state(bat_pb_t *bat, float V_meas, float I_meas,
                                        float temp_meas, float dt_seconds)
 {
-    if (bat == NULL || dt_seconds <= 0.0f) return -1;
+    if (bat == NULL) return BAT_ERR_NULL_PTR;
+    if (dt_seconds <= 0.0f) return BAT_ERR_INVALID_DT;
+
+    float C = bat->config.capacity_ah;
+    float I_threshold_charge = BAT_CHARGE_CURRENT_THRESHOLD_C * C;
+    float I_threshold_discharge = BAT_DISCHARGE_CURRENT_THRESHOLD_C * C;
+    float I_threshold_ocv = BAT_OCV_CURRENT_THRESHOLD_C * C;
 
     bat->state.V_batt = V_meas;
     bat->state.I_batt = I_meas;
@@ -865,16 +731,16 @@ static inline int bat_pb_update_state(bat_pb_t *bat, float V_meas, float I_meas,
     bat->state.V_per_cell_compensated = bat_pb_temp_compensate(bat->state.V_per_cell, temp_meas, bat->config.temp_ref);
     bat->state.V_batt_compensated = bat_pb_cell_to_total(bat->state.V_per_cell_compensated, n);
 
-    /* Detection charge/decharge */
-    bat->state.is_charging = (I_meas > BAT_CHARGE_CURRENT_THRESHOLD);
-    bat->state.is_discharging = (I_meas < BAT_DISCHARGE_CURRENT_THRESHOLD);
-    bat->state.is_floating = false;
-    bat->state.is_equalizing = false;
+    /* Detection charge/decharge avec hysteresis */
+    bat->state.is_charging = (I_meas > I_threshold_charge);
+    bat->state.is_discharging = (I_meas < I_threshold_discharge);
 
-    /* Estimation SOC depuis OCV si repos (courant faible) */
-    if (fabsf(I_meas) < BAT_CHARGE_CURRENT_THRESHOLD) {
-        bat->state.soc_percent = bat_pb_estimate_soc_from_ocv(
-            bat->config.type, V_meas, n);
+    /* Estimation SOC depuis OCV si vrai repos (courant tres faible) */
+    if (fabsf(I_meas) < I_threshold_ocv) {
+        float soc_ocv = bat_pb_estimate_soc_from_ocv(bat->config.type, V_meas, n);
+        if (soc_ocv >= 0.0f) {
+            bat->state.soc_percent = soc_ocv;
+        }
     }
     bat->state.dod_percent = 100.0f - bat->state.soc_percent;
 
@@ -895,20 +761,37 @@ static inline int bat_pb_update_state(bat_pb_t *bat, float V_meas, float I_meas,
 
     bat->state.is_critical = (bat->state.soc_percent < BAT_SOC_CRITICAL_THRESHOLD);
 
-    /* Compteurs Ah (correctement proportionnels au dt) */
+    /* Compteurs Ah */
     if (bat->state.is_charging) {
         bat->state.total_ah_charged += I_meas * dt_seconds / 3600.0f;
     } else if (bat->state.is_discharging) {
         bat->state.total_ah_discharged += (-I_meas) * dt_seconds / 3600.0f;
     }
 
-    /* Incrementation du timer de charge si en charge */
+    /* Timer de charge avec hysteresis */
     if (bat->state.is_charging) {
         bat->state.charge_time_hours += dt_seconds / 3600.0f;
+        bat->state.charge_timer_hysteresis_s = 0.0f;
     } else {
-        /* Reset du timer si pas en charge (nouveau cycle) */
-        bat->state.charge_time_hours = 0.0f;
+        /* Accumule le temps hors charge */
+        bat->state.charge_timer_hysteresis_s += dt_seconds;
+        /* Reset seulement apres la periode d'hysteresis */
+        if (bat->state.charge_timer_hysteresis_s >= BAT_CHARGE_TIMER_HYSTERESIS_S) {
+            bat->state.charge_time_hours = 0.0f;
+            bat->state.charge_timer_hysteresis_s = 0.0f;
+        }
     }
+
+    /* Timer equalization separe */
+    if (bat->state.charge_phase == BAT_CHARGE_PHASE_EQUALIZATION && bat->state.is_charging) {
+        bat->state.equalization_time_hours += dt_seconds / 3600.0f;
+    } else if (bat->state.charge_phase != BAT_CHARGE_PHASE_EQUALIZATION) {
+        bat->state.equalization_time_hours = 0.0f;
+    }
+
+    /* Synchronisation des flags avec la phase */
+    bat->state.is_floating = (bat->state.charge_phase == BAT_CHARGE_PHASE_FLOATING);
+    bat->state.is_equalizing = (bat->state.charge_phase == BAT_CHARGE_PHASE_EQUALIZATION);
 
     /* Recalcul des seuils si temperature changee significativement */
     if (bat->state.first_measurement ||
@@ -918,20 +801,13 @@ static inline int bat_pb_update_state(bat_pb_t *bat, float V_meas, float I_meas,
         bat->state.first_measurement = false;
     }
 
-    return 0;
+    return BAT_OK;
 }
 
-/**
- * @brief Determine la phase de charge suivante en fonction de l'etat actuel.
- * Machine a etats pour la charge CC/CV/Float/Equalization (Vision 2).
- *
- * Vision 2: BULK a un seuil de transition distinct de l'absorption.
- *  - BULK (CC): I = I_max, V monte jusqu'a V_bulk_threshold
- *  - ABSORPTION (CV): V = V_absorption, I decroit jusqu'a I_end
- *
- * @param bat Pointeur vers la structure batterie
- * @return Phase de charge recommandee
- */
+/* ==========================================================================
+ *  SECTION 12: MACHINE A ETATS
+ * ========================================================================== */
+
 static inline bat_charge_phase_t bat_pb_determine_charge_phase(const bat_pb_t *bat)
 {
     if (bat == NULL || !bat->state.is_charging) {
@@ -946,19 +822,16 @@ static inline bat_charge_phase_t bat_pb_determine_charge_phase(const bat_pb_t *b
             return BAT_CHARGE_PHASE_BULK;
 
         case BAT_CHARGE_PHASE_BULK:
-            /* Vision 2: transition vers absorption quand V >= V_bulk_threshold */
             if (V >= bat->thresholds.V_bulk) {
                 return BAT_CHARGE_PHASE_ABSORPTION;
             }
             return BAT_CHARGE_PHASE_BULK;
 
         case BAT_CHARGE_PHASE_ABSORPTION:
-            /* Transition floating: courant fini ET temps minimum ecoule */
             if (I <= bat->currents.I_absorption_end &&
                 bat->state.charge_time_hours >= BAT_MIN_ABSORPTION_TIME_H) {
                 return BAT_CHARGE_PHASE_FLOATING;
             }
-            /* Securite temps max */
             if (bat->state.charge_time_hours >= BAT_MAX_ABSORPTION_TIME_H) {
                 return BAT_CHARGE_PHASE_FLOATING;
             }
@@ -971,7 +844,7 @@ static inline bat_charge_phase_t bat_pb_determine_charge_phase(const bat_pb_t *b
             return BAT_CHARGE_PHASE_FLOATING;
 
         case BAT_CHARGE_PHASE_EQUALIZATION:
-            if (bat->state.charge_time_hours >= BAT_EQUALIZATION_DURATION_H[bat->config.type]) {
+            if (bat->state.equalization_time_hours >= BAT_EQUALIZATION_DURATION_H[bat->config.type]) {
                 return BAT_CHARGE_PHASE_FLOATING;
             }
             return BAT_CHARGE_PHASE_EQUALIZATION;
@@ -982,15 +855,44 @@ static inline bat_charge_phase_t bat_pb_determine_charge_phase(const bat_pb_t *b
 }
 
 /**
- * @brief Met a jour le SOC par comptage de Coulomb (integration courant).
- * A appeler regulierement avec le dt correspondant a l'intervalle de mesure.
+ * @brief Applique la phase de charge determinee a l'etat de la batterie.
+ * Met a jour charge_phase et synchronise les flags.
  *
  * @param bat Pointeur vers la structure batterie
- * @param I_meas Courant mesure [A] (>0 charge, <0 decharge)
- * @param dt_seconds Temps ecoule depuis dernier appel [s]
- * @param update_ocv Si true, reajuste periodiquement sur l'OCV
- * @return SOC estime par Coulomb [%]
+ * @return Phase appliquee
  */
+static inline bat_charge_phase_t bat_pb_apply_charge_phase(bat_pb_t *bat)
+{
+    if (bat == NULL) return BAT_CHARGE_PHASE_IDLE;
+
+    bat_charge_phase_t new_phase = bat_pb_determine_charge_phase(bat);
+
+    /* Reset du timer equalization si on sort de cette phase */
+    if (bat->state.charge_phase == BAT_CHARGE_PHASE_EQUALIZATION &&
+        new_phase != BAT_CHARGE_PHASE_EQUALIZATION) {
+        bat->state.equalization_time_hours = 0.0f;
+    }
+
+    /* Reset du timer charge si on entre en bulk (nouveau cycle) */
+    if (new_phase == BAT_CHARGE_PHASE_BULK &&
+        bat->state.charge_phase != BAT_CHARGE_PHASE_BULK) {
+        bat->state.charge_time_hours = 0.0f;
+        bat->state.charge_timer_hysteresis_s = 0.0f;
+    }
+
+    bat->state.charge_phase = new_phase;
+
+    /* Synchronisation des flags */
+    bat->state.is_floating = (new_phase == BAT_CHARGE_PHASE_FLOATING);
+    bat->state.is_equalizing = (new_phase == BAT_CHARGE_PHASE_EQUALIZATION);
+
+    return new_phase;
+}
+
+/* ==========================================================================
+ *  SECTION 13: COULOMB COUNTING
+ * ========================================================================== */
+
 static inline float bat_pb_update_coulomb_counting(bat_pb_t *bat, float I_meas,
                                                     float dt_seconds, bool update_ocv)
 {
@@ -999,30 +901,30 @@ static inline float bat_pb_update_coulomb_counting(bat_pb_t *bat, float I_meas,
     float C = bat->config.capacity_ah;
     float efficiency = BAT_PB_EFFICIENCY_THEORETICAL;
 
-    /* Integration du courant (Ah) */
+    /* Auto-decharge (appliquee meme sans courant mesure) */
+    float self_discharge_ah = C * (BAT_PB_SELF_DISCHARGE_PER_MONTH / 100.0f) * (dt_seconds / (30.0f * 24.0f * 3600.0f));
+    bat->state.coulomb_ah += self_discharge_ah;
+
+    /* Integration du courant mesure */
     float dAh = I_meas * dt_seconds / 3600.0f;
-
-    /* Rendement different selon charge/decharge */
     if (I_meas > 0) {
-        dAh *= efficiency;   /* Charge: rendement < 1 */
+        dAh *= efficiency;
     }
-
     bat->state.coulomb_ah += dAh;
 
-    /* Clamping coulomb_ah pour eviter la derive */
+    /* Clamping */
     if (bat->state.coulomb_ah > C) bat->state.coulomb_ah = C;
     if (bat->state.coulomb_ah < -C) bat->state.coulomb_ah = -C;
 
-    /* SOC par Coulomb */
     float soc_coulomb = 100.0f * (1.0f - bat->state.coulomb_ah / C);
 
-    /* Reajustement periodique sur OCV (repos, pas de courant) */
-    if (update_ocv && fabsf(I_meas) < BAT_CHARGE_CURRENT_THRESHOLD) {
+    /* Reajustement OCV */
+    float I_threshold_ocv = BAT_OCV_CURRENT_THRESHOLD_C * C;
+    if (update_ocv && fabsf(I_meas) < I_threshold_ocv) {
         float soc_ocv = bat_pb_estimate_soc_from_ocv(bat->config.type,
                                                       bat->state.V_batt,
                                                       bat->config.nb_elements);
-        if (soc_ocv >= 0) {
-            /* Filtre complementaire: 95% OCV, 5% Coulomb pour stabilite */
+        if (soc_ocv >= 0.0f) {
             bat->state.soc_percent = soc_ocv * 0.95f + soc_coulomb * 0.05f;
             bat->state.coulomb_ah = C * (1.0f - bat->state.soc_percent / 100.0f);
         } else {
@@ -1032,22 +934,18 @@ static inline float bat_pb_update_coulomb_counting(bat_pb_t *bat, float I_meas,
         bat->state.soc_percent = soc_coulomb;
     }
 
-    /* Bornes */
     if (bat->state.soc_percent < 0.0f) bat->state.soc_percent = 0.0f;
     if (bat->state.soc_percent > 100.0f) bat->state.soc_percent = 100.0f;
 
-    /* Comptage des cycles - methode IEC 61427 avec conservation du DOD cumule */
+    /* Comptage cycles IEC 61427 */
     float delta_dod = bat->state.last_soc_for_cycles - bat->state.soc_percent;
     if (delta_dod > 0) {
-        /* Decharge: accumulation du DOD */
         bat->state.cumulative_dod += delta_dod;
         if (bat->state.cumulative_dod >= 80.0f) {
             bat->state.cycle_count++;
-            /* Conserve le DOD excédentaire au lieu de reset a 0 */
             bat->state.cumulative_dod -= 80.0f;
         }
     } else if (delta_dod < 0 && bat->state.soc_percent >= BAT_SOC_FULL_THRESHOLD) {
-        /* Recharge complete: reset du DOD cumule pour nouveau cycle */
         bat->state.cumulative_dod = 0.0f;
     }
     bat->state.last_soc_for_cycles = bat->state.soc_percent;
@@ -1055,17 +953,14 @@ static inline float bat_pb_update_coulomb_counting(bat_pb_t *bat, float I_meas,
     return bat->state.soc_percent;
 }
 
-/**
- * @brief Calcule tous les parametres de la batterie (seuils + courants).
- * A appeler apres bat_pb_init() ou apres changement de temperature.
- *
- * @param bat Pointeur vers la structure batterie
- * @return 0 si succes
- */
+/* ==========================================================================
+ *  SECTION 14: FONCTIONS GLOBALES
+ * ========================================================================== */
+
 static inline int bat_pb_compute_all(bat_pb_t *bat)
 {
     int ret = bat_pb_compute_thresholds(bat);
-    if (ret != 0) return ret;
+    if (ret != BAT_OK) return ret;
     return bat_pb_compute_currents(bat);
 }
 

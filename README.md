@@ -431,7 +431,7 @@ Voir ./examples/basic_usage/[`main.c`](main.c) pour des cas d'utilisation comple
 - **BULK et ABSORPTION distincts** (Vision 2) — seuil de transition BULK à 2.30 V/él, absorption à 2.35 V/él
 - **Compensation thermique sur toutes les tables** — `get_disconnect_voltage()` et `get_reconnect_voltage()` compensent automatiquement
 - **Comptage de Coulomb** — intégration du courant avec réajustement OCV
-- **Comptage de cycles** — méthode IEC 61477 avec conservation du DOD excédentaire
+- **Comptage de cycles** — méthode IEC 61427 avec conservation du DOD excédentaire
 - **Timer de charge fonctionnel** — `charge_time_hours` incrémenté avec `dt_seconds`
 
 ### Corrections
