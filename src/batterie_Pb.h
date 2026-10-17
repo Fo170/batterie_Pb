@@ -22,7 +22,7 @@
 
 
 // Version de la librairie (source UNIQUE — agrégée par liste_lib.h)
-#define __BATTERIE_PB_H_VERSION__ "1.1.0"
+#define __BATTERIE_PB_H_VERSION__ "1.1.1"
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
